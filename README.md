@@ -1,5 +1,6 @@
 # Apple2CoCo
-A simple Apple II emulator written for the Tandy Color Computer 3
+A simple Apple II emulator written for the Tandy Color Computer 3<br>
+Written by Todd Wallace (https://tektodd.com)
 
 **BUILDING INSTRUCTIONS**
 
