@@ -1,7 +1,11 @@
 # Apple2CoCo
 A simple Apple II emulator written for the Tandy Color Computer 3<br>
-Written by Todd Wallace (https://tektodd.com)
-
+Written by Todd Wallace
+<br>
+YouTube: https://www.youtube.com/@tekdragon  
+Website: https://tektodd.com<br><br>
+<p align="center"><img width="641" alt="Screenshot 2023-02-16 131143" src="https://user-images.githubusercontent.com/17234382/219452025-69a8fe24-284a-431e-b401-70d3daa60aec.png"></p>
+<br>
 This emulator is mostly a proof-of-concept project and by no means a complete emulation of the Apple II. While the 6502 CPU emulation is complete, the only two apple-specific things that work are the keyboard I/O and the Lo Res "stock" 40 column text-only video mode. The video stuff isn't cycle-accurate and probably not implemented in the smartest way, but it works! I have plans to expand this in the future to support additional video modes and maybe make some optimizations to the process.
 
 **BUILDING INSTRUCTIONS**
