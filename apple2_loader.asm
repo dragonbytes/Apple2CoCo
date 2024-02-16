@@ -1,17 +1,19 @@
-
-************************************************************************************************
-* This loader is responsible for copying the 6502 emulation core into ram address $E000 in a
-* way that doesn't kill BASIC's LOADM command, but once running, let's us have MOST of the
-* coco address space contiguously to store the 6502's ram into. (MMU Task 1 from $0000 to $E000)
-* This code also contains the vram renderer and the beep code as well as remote IO calls to
-* talk to BASIC's GET/PUT character routines
-************************************************************************************************
+**********************************************************************
+* Apple2Coco v1.0
+* Written by Todd Wallace
+*
+* My Links:
+* https://www.youtube.com/@tekdragon
+* https://github.com/dragonbytes
+* https://tektodd.com
+**********************************************************************
 
 payload_dest 		EQU  	$E000
 mmu_bank7 		EQU 	$FFA7
 mmu_bank15  		EQU  	$FFAF
 
 diskOpCode 		EQU  	$00EA
+diskDriveNum  	EQU  	$00EB
 diskTrack  		EQU 	$00EC	
 diskSector  		EQU  	$00ED
 diskDataPtr 		EQU  	$00EE
@@ -51,41 +53,65 @@ mmu_bank4 		EQU 	$FFA4 		; Controls Task 1 $8000-$9FFF
 mmu_bank5  		EQU  	$FFA5   		; Controls Task 1 $A000-$BFFF
 
 code_mmu_blk 		EQU  	$08
+coco3_slow   		EQU  	$FFD8
 coco3_fast  		EQU  	$FFD9
+CASBUF  		EQU  	$01DA
+
+;debugger_enabled   	EQU  	1
 
 		pragma 	6309
+; ----------------------------------------------------------------
+; This small routine is stashed in the little-used cassette buffer
+; because it is a protected area of memory that BASIC never swaps
+; out. When calling CONSOLE OUT from a hi-res text mode, BASIC
+; normally clobbers the MMU blocks which would break my loader in
+; various ways. This routine bypasses the issue :)
+; ----------------------------------------------------------------
+		org  		CASBUF 	
+PRINT_CHAR
+	sts  	backupStackPtr
+	lds  	#tempStackStart
+	jsr  	[$A002]
+	lds  	backupStackPtr
+	rts
+	  		RMB  	32
+tempStackStart
+backupStackPtr  	RMB  	2
+; -----------------------------------------------------
 		org 		$2800
-		FDB  		APPLE_BEEP
-		FDB  		POLDRAGON
-		FDB  		UPDATE_SCREEN_GFX_MODE
+		
+			FDB  		APPLE_BEEP
+			FDB  		POLDRAGON
+			FDB  		UPDATE_SCREEN_GFX_MODE
+			FDB  		UPDATE_SCREEN_LO_RES_GFX
+		;FDB  		FLOPPY_READ_SECTOR
+columnCounter 	FCB  	40 
+appleRowPtr  		RMB  	2
+charPtr  		RMB  	2
+tempByte  		RMB  	1
+romProgessCounter  	RMB  	1
+curDiskMMUblock  	RMB  	1
 
 		include 	apple2_keyboard.asm
+		;include  	apple2_floppy.asm
+		include  	apple2_rom_load.asm
 ; -----------------------------------------------------------------
-PRINT_CHAR
-	pshs  	Y,X,D,DP
+PRINT_NULL_STRING
+	pshs  	Y,D
 
-	; swap BASIC routines in
-	ldb  	#$3F 
-	stb  	>mmu_bank7
 	clrb 
-	tfr  	B,DP
-	jsr  	[$A002]
-	orcc  	#$50  		; just in case interrupts are re-enabled from BASIC
-
-	ldb  	#code_mmu_blk
-	stb  	>mmu_bank7
-
-	ldy  	#$FFA8 
-	ldx  	#mmuRemapAfterBASIC
-	ldb  	#8 
-PRINT_CHAR_REMAP_MMU
-	lda  	,X+
-	sta  	,Y+
+PRINT_NULL_STRING_NEXT_CHAR
+	lda  	,Y+
+	beq   	PRINT_NULL_STRING_DONE
+	jsr  	PRINT_CHAR
+	;jsr  	$0167
 	decb 
-	bne  	PRINT_CHAR_REMAP_MMU
+	bne  	PRINT_NULL_STRING_NEXT_CHAR
+	; if here, overflowed passed 256 bytes
+PRINT_NULL_STRING_DONE
+	puls  	D,Y,PC
 
-	puls  	D,X,Y,DP,PC
-
+ IFDEF use_BASIC_keyboard
 ; -----------------------------------------------------------------
 GET_CHAR
 	pshs  	B,DP
@@ -105,45 +131,105 @@ GET_CHAR
 
 	puls  	B,DP,PC
 	
-
+ ENDC 
 	*************************************************************************************************
 START
 	orcc  	#$50
 
-	sts  	<origStackptr
+	sts  	origStackptr
 	lds  	#$2800
+
+	; display emulator title/info
+	ldy  	#strEmuInfo
+	jsr  	PRINT_NULL_STRING
+	; tell user we are searching for APPLE2.ROM file
+	ldy  	#strROMsearching
+	jsr  	PRINT_NULL_STRING
+	; before doing any disk reading, get the disk's FAT sector
+	ldy  	#decbGranMap
+	jsr  	DECB_GET_FAT
+	ldy  	#strAppleROMfilename
+	jsr  	DECB_FIND_FILENAME
+	lbcs  	LOAD_ROM_ERROR_FILE_NOT_FOUND
+	ldy  	#strROMloading
+	jsr  	PRINT_NULL_STRING
+	jsr  	LOAD_APPLE_ROM
+	lbcs  	LOAD_ROM_ERROR_INVALID_SIZE
+	; if here, we successfully loaded in a valid ROM file
+	orcc  	#$50  			; MAKE SURE INTERRUPTS ARE DISABLED
 	clr  	>coco3_fast
 
-	; clear 6502 video ram and insert my author credits in there
-	;clr  	>mmu_bank2 
-	;ldx  	#$4400
-	;ldy 	#clearScrnByte	; should be $00 at the time of calling this copy instruction
-	;ldw  	#$0400
-	;tfm  	Y,X+
+	; configure gfx lookup tables
+	ldx  	#loResGfxLookupTable
+	clrw 
+	lda  	#16
+LORES_GFX_GENERATE_TABLE_NEXT_MSB
+	ldb  	#16
+LORES_GFX_GENERATE_TABLE_NEXT_LSB
+	stw  	,X++
+	adde  	#$11
+	decb 
+	bne   	LORES_GFX_GENERATE_TABLE_NEXT_LSB
+	addf  	#$11 
+	clre 
+	deca 
+	bne  	LORES_GFX_GENERATE_TABLE_NEXT_MSB
 
-	;ldy  	#strEmuName
-	;ldx  	,Y++
-	;jsr   	PRINT_INFO
-	;ldy  	#strEmuDescription1
-	;ldx  	,Y++
-	;jsr  	PRINT_INFO
-	;ldy  	#strEmuDescription2
-	;ldx  	,Y++
-	;jsr  	PRINT_INFO
-	;ldy  	#strEmuAuthor
-	;ldx  	,Y++
-	;jsr   	PRINT_INFO
-
-;	lda  	#$3A 
-;	sta  	>mmu_bank2
+	; configure large lookup table for lo res gfx text rendering
+	ldx  	#loResGfxTextTable
+	clrf 
+LORES_GFX_TEXT_GENERATE_TABLE_NEXT
+	tfr  	F,B
+	sex 
+	anda  	#$F0 
+	sta  	<tempByte 
+	lslb 
+	sex 
+	anda  	#$0F
+	ora 	<tempByte
+	sta  	,X+
+	lslb 
+	sex 
+	anda  	#$F0 
+	sta  	<tempByte
+	lslb 
+	sex 
+	anda  	#$0F 
+	ora  	<tempByte
+	sta  	,X+
+	lslb 
+	sex 
+	anda  	#$F0 
+	sta  	<tempByte
+	lslb 
+	sex 
+	anda  	#$0F 
+	ora  	<tempByte
+	sta  	,X+
+	lslb 
+	sex 
+	anda  	#$F0 
+	sta  	<tempByte
+	lslb 
+	sex 
+	anda  	#$0F 
+	ora  	<tempByte
+	sta  	,X+
+	incf 
+	bne  	LORES_GFX_TEXT_GENERATE_TABLE_NEXT
 
 	jsr  	SETUP_VIDEO_GFX
+
+	; set monchrome text default color to white
+	lda  	#16
+	sta  	>gime_palette1
 	jsr   	UPDATE_SCREEN_GFX_MODE
 
 	; before anything else, we need to swap in another MMU block for $E000-$FE00 region so we don't nuke BASIC
 	lda  	#code_mmu_blk		
 	sta  	>mmu_bank7  	
-	sta  	>mmu_bank15   	; VERY IMPORTANT. THE LAST TWO MMU BANKS MUST BE MIRRORED WHERE OUR CODE LIVES
+	sta  	>mmu_bank15   	; VERY IMPORTANT. THE LAST MMU BANK IN EACH TASK MUST BE MIRRORED TO
+					; WHERE OUR 6502 CORE CODE LIVES
 	
 	ldx  	#PAYLOAD_BODY 	; start of actual main code
 	ldy  	#payload_dest 	; destination address
@@ -154,19 +240,36 @@ START
 
 	jmp  	[PAYLOAD_EXEC]
 
+LOAD_ROM_ERROR_FILE_NOT_FOUND
+	ldy  	#strROMfileNotFound
+	jsr  	PRINT_NULL_STRING
+	bra  	LOAD_ROM_ERROR_EXIT
+
+LOAD_ROM_ERROR_INVALID_SIZE
+	ldy  	#strROMinvalidSize
+	jsr  	PRINT_NULL_STRING
+LOAD_ROM_ERROR_EXIT
+	lds  	origStackptr
+	sta  	>coco3_slow
+	rts
+
+*****************************************************************************
 PAYLOAD_EXEC 		EQU  	*
 PAYLOAD_BODY 		EQU  	*+2
 	includebin 	cpu6502payload.bin
 payload_body_sz 	EQU 	*-PAYLOAD_BODY
 
-strEmuName  		FDB  	$4500+15
-			FCN  	"APPLE2COCO"
-strEmuDescription1 	FDB  	$44A8+7
-			FCN  	"A SIMPLE APPLE II EMULATOR"
-strEmuDescription2 	FDB  	$45A8+5
-			FCN  	"FOR THE TANDY COLOR COMPUTER 3"
-strEmuAuthor  	FDB  	$4550+9
-			FCN  	"WRITTEN BY TODD WALLACE"
+strAppleROMfilename 	FCC  	"APPLE2  ROM"
+
+strEmuInfo		FCC  	"        -= APPLE2COCO =-\r\r"
+			FCC 	"   A SIMPLE APPLE II EMULATOR\r"
+			FCC  	" FOR THE TANDY COLOR COMPUTER 3\r\r"
+			FCN  	"    WRITTEN BY TODD WALLACE\r\r"
+
+strROMsearching  	FCN  	"LOOKING FOR APPLE2.ROM FILE...\r"
+strROMloading  	FCN  	"FOUND ROM FILE. LOADING...\r"
+strROMfileNotFound  	FCN  	"ERROR: FILE NOT FOUND\r\r"
+strROMinvalidSize  	FCN  	"\r\rERROR: APPLE2.ROM DOES NOT HAVE\rEXPECTED SIZE OF 20480 BYTES\r\r"
 
 fontBitmap  		EQU  	*
 	includebin  	font8x8.bin  	; 64 non-inverted chars followed by the 64 inverted versions
@@ -177,14 +280,26 @@ mmuRemapAfterBASIC 	FCB  	$00,$02,$03,$04,$05,$06,$07,code_mmu_blk
 totalPages  		FCB  	$00
 clearScrnByte		FCB  	$A0
 origStackptr  	FDB  	$0000
+paletteTable  	FCB  	0,33,8,40,2,7,29,57,6,38,56,47,16,48,26,63
 
-appleVidPtrTable  	FDB  	$6400,$6480,$6500,$6580,$6600,$6680,$6700,$6780
-			FDB  	$6428,$64A8,$6528,$65A8,$6628,$66A8,$6728,$67A8
-			FDB  	$6450,$64D0,$6550,$65D0,$6650,$66D0,$6750,$67D0
+loResTxtVidPtrTable 	FDB  	$0400,$0480,$0500,$0580,$0600,$0680,$0700,$0780
+			FDB  	$0428,$04A8,$0528,$05A8,$0628,$06A8,$0728,$07A8
+			FDB  	$0450,$04D0,$0550,$05D0,$0650,$06D0,$0750,$07D0 
 			FDB  	0 		; null terminator NEEDED 
 
-columnCounter 	FCB  	40
+loResGfxVidPtrTable  FDB  	$0400,$0480,$0500,$0580,$0600,$0680,$0700,$0780
+			FDB  	$0428,$04A8,$0528,$05A8,$0628,$06A8,$0728,$07A8
+			FDB  	$0450,$04D0,$0550,$05D0
+			FDB  	$FFFF  	; flag to tell routine to check for mixed text mode
+			; these last 4 rows are used in some modes as mixed text+graphics
+			FDB  	$0650,$06D0,$0750,$07D0 
+			FDB  	0 		; null terminator NEEDED 
+
+zeroByte  		FCB  	0
+loResGfxLookupTable	RMB  	512
+loResGfxTextTable  	RMB  	1024
 *******************************************************************
+ IFDEF use_opening_title
 PRINT_INFO
 	pshs  	D 
 	clrb
@@ -197,23 +312,28 @@ PRINT_INFO_NEXT_CHAR
 	bne  	PRINT_INFO_NEXT_CHAR
 PRINT_INFO_DONE
 	puls  	D,PC
-
+ ENDC 
 ; ---------------------------------
 ; Setup 320x192 gfx mode in GIME
 ; ---------------------------------
 SETUP_VIDEO_GFX
-	pshs 	D,CC
+	pshs 	Y,X,D,CC
 	orcc 	#$50
 
 	; setup color palette
 	;lda  	#1 		; background color 0 for background (dark blue)
 	clra 			; black background
-	sta 	>gime_palette0
 	sta 	>gime_border
-	lda 	#16  		; foreground text color 0 (green)
-	sta  	>gime_palette1 	; for background cursor color 
+	ldb  	#16
+	ldy  	#gime_palette0
+	ldx  	#paletteTable
+SETUP_VIDEO_GFX_PALETTE_NEXT
+	lda  	,X+
+	sta  	,Y+
+	decb 
+	bne  	SETUP_VIDEO_GFX_PALETTE_NEXT
 
-	ldd 	#$D800			; Point GIME screen memory to $6C000 real address
+	ldd 	#$4000			; Point GIME screen memory to $20000 real address
 	std 	gime_vert_offset
 
 	lda 	#%10000000
@@ -225,7 +345,7 @@ SETUP_VIDEO_GFX
 	clra
 	sta 	gime_init1
 
-	puls 	CC,D,PC
+	puls 	CC,D,X,Y,PC
 
 ; ------------------------------------------------------
 ; render an apple 2 low-res text screen using coco gfx 
@@ -234,12 +354,13 @@ UPDATE_SCREEN_GFX_MODE
 	pshs  	U,Y,DP,X,D
 	pshsw
 
-	; map coco video memory into $4000 and 6502 address $0000 into coco address $6000
-	ldd  	#$3600
-	std  	>mmu_bank2 
+	; map coco video memory into $6000 and 6502 address $0000 into coco address $0000
+	ldd  	#$0010
+	sta  	>mmu_bank0 
+	stb  	>mmu_bank3
 
-	ldw  	#$4000
-	ldu  	#appleVidPtrTable
+	ldw  	#$6000
+	ldu  	#loResTxtVidPtrTable
 UPDATE_SCREEN_GFX_MODE_NEXT_ROW
 	lda  	#40
 	sta  	>columnCounter
@@ -278,11 +399,191 @@ UPDATE_SCREEN_GFX_MODE_NOT_INVERTED
 
 UPDATE_SCREEN_GFX_MODE_DONE
 	; restore original MMU state
-	ldd  	#$3A3B 
-	std  	>mmu_bank2  
+	ldd  	#$383B
+	sta  	>mmu_bank0
+	stb  	>mmu_bank3
 
 	pulsw
 	puls  	D,X,DP,Y,U,PC 
+
+; ------------------------------------------------------
+; render an apple 2 low-res text screen using coco gfx 
+; ------------------------------------------------------
+UPDATE_SCREEN_LO_RES_GFX
+	pshs  	U,Y,DP,X,D
+	pshsw
+
+	; map coco video memory into $4000 and 6502 address $0000 into coco address $6000
+	clr  	>mmu_bank0 
+	ldq  	#$10111213
+	stq  	>mmu_bank3 
+
+	lda  	#$28
+	tfr   	A,DP 
+	ldw 	#$6000
+	ldu  	#loResGfxVidPtrTable
+UPDATE_SCREEN_LO_RES_GFX_NEXT_ROW
+	lda  	#40
+	sta  	<columnCounter
+UPDATE_SCREEN_LO_RES_GFX_NO_TEXT
+	ldy  	,U++
+	bmi  	UPDATE_SCREEN_LO_RES_GFX_CHECK_MIXED
+	lbeq  	UPDATE_SCREEN_LO_RES_GFX_DONE
+UPDATE_SCREEN_LO_RES_GFX_NEXT_BLOCK
+	ldb  	,Y+ 
+	clra 
+	lsld 
+	ldx  	#loResGfxLookupTable
+	addr  	D,X 
+	lda 	,X+
+	tfr  	A,B 
+	; do top-half of character-based "pixel"
+	std   	,W  		; 5
+	std   	2,W  		; 7
+	std  	(160*1),W 	; 7
+	std  	(160*1)+2,W   ; 7 
+	std   	(160*2),W  	; 7
+	std  	(160*2)+2,W  	; 7
+	std   	(160*3),W  	; 7
+	std  	(160*3)+2,W  	; 7
+	; now render the bottom-half 
+	lda  	,X
+	tfr  	A,B 
+	std   	(160*4),W  	; 5
+	std   	(160*4)+2,W	; 7
+	std  	(160*5),W 	; 7
+	std  	(160*5)+2,W   ; 7 
+	std   	(160*6),W  	; 7
+	std  	(160*6)+2,W  	; 7
+	std   	(160*7),W  	; 7
+	std  	(160*7)+2,W  	; 7	
+
+	addw  	#4  		; move to next 8-pixel wide start point
+	dec  	<columnCounter
+	bne  	UPDATE_SCREEN_LO_RES_GFX_NEXT_BLOCK
+	addw  	#160*7  		; add 7 scanline rows more of pixels to get us to next char row
+	bra  	UPDATE_SCREEN_LO_RES_GFX_NEXT_ROW
+
+UPDATE_SCREEN_LO_RES_GFX_CHECK_MIXED
+	lda  	2,S  		; this should be pointing at entry A register on stack containing video mode
+	cmpa  	#$53 
+	bne  	UPDATE_SCREEN_LO_RES_GFX_NO_TEXT
+	ldy  	,U++
+	stu  	<appleRowPtr 
+	tfr   	W,U  		; for the text stuff, change to using U as coco vram ptr 
+UPDATE_SCREEN_LO_RES_GFX_NEXT_TEXT_ROW
+	lda  	#40
+	sta  	<columnCounter
+UPDATE_SCREEN_LO_RES_GFX_NEXT_CHAR
+	ldb  	,Y
+	andb  	#%00111111
+	clra 
+	lsld 
+	lsld 
+	lsld 
+	addd  	#fontBitmap
+	tst  	,Y+
+	bmi  	UPDATE_SCREEN_LO_RES_GFX_NOT_INVERTED
+	addd  	#$0200  	; add offset to inverted font bitmap
+UPDATE_SCREEN_LO_RES_GFX_NOT_INVERTED
+	tfr  	D,X  
+	sty  	<charPtr
+	ldy 	#loResGfxTextTable
+
+	ldb  	,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	,U 
+
+	ldb  	1,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*1),U
+
+	ldb  	2,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*2),U
+
+	ldb  	3,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*3),U
+
+	ldb  	4,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*4),U
+
+	ldb  	5,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*5),U
+
+	ldb  	6,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*6),U
+
+	ldb  	7,X
+	clra 
+	lsld 
+	lsld 
+	ldq  	D,Y
+	stq  	(160*7),U
+
+	ldy   	<charPtr 
+	leau  	4,U 
+	dec  	<columnCounter
+	lbne  	UPDATE_SCREEN_LO_RES_GFX_NEXT_CHAR
+	leau  	(160*7),U 
+	ldw  	<appleRowPtr 
+	ldy  	,W++
+	beq   	UPDATE_SCREEN_LO_RES_GFX_DONE
+	stw  	<appleRowPtr
+	lbra  	UPDATE_SCREEN_LO_RES_GFX_NEXT_TEXT_ROW
+UPDATE_SCREEN_LO_RES_GFX_DONE
+	; restore original MMU state
+	lda  	#$38
+	sta  	>mmu_bank0
+	ldq  	#$3B3C3D3E
+	stq  	>mmu_bank3
+
+	pulsw
+	puls  	D,X,DP,Y,U,PC 
+
+; ---------------------------------------------------------------------
+SCREEN_GFX_CLEAR
+	pshs  	Y,X,D
+	pshsw 
+
+	ldq  	#$10111213
+	stq  	>mmu_bank3 
+
+	ldx  	#$6000
+	ldy  	#zeroByte
+	ldw  	#$7800
+	tfm  	Y,X+
+
+	ldq  	#$3B3C3D3E
+	stq  	>mmu_bank3
+
+	pulsw 
+	puls  	D,X,Y,PC 	
 
 ; ---------------------------------------------------------------------
 ; Special thanks to MrDave6309 for showing me this simple BEEP routine!

@@ -1,4 +1,14 @@
-
+**********************************************************************
+* Apple2Coco v1.0
+* Written by Todd Wallace
+*
+* My Links:
+* https://www.youtube.com/@tekdragon
+* https://github.com/dragonbytes
+* https://tektodd.com
+**********************************************************************
+* Keyboard polling routine
+**********************************************************************
 	pragma  	cescapes
 
 ******************************
@@ -79,6 +89,13 @@ POLDRAGON_SKIP_CLEAR_CHECK
 	bita 	rolloverTable+5
 	bne 	POLDRAGON_BREAK_KEY
 POLDRAGON_SKIP_BREAK_CHECK
+	; check for F1 key (debugger)
+	lda  	#%01000000
+	bita  	keyboardBuffer+2
+	bne   	POLDRAGON_SKIP_F1_CHECK
+	bita 	rolloverTable+2
+	bne  	POLDRAGON_F1_KEY
+POLDRAGON_SKIP_F1_CHECK
 	bsr 	SCAN_FOR_ASCII
 	beq 	POLDRAGON_SAVE_STATE
 	sta 	keyResult
@@ -99,6 +116,11 @@ POLDRAGON_CLEAR_KEY
 	lda 	#$BD
 	sta 	keyResult
 	bra 	POLDRAGON_SAVE_STATE
+
+POLDRAGON_F1_KEY
+	lda  	#$BE
+	sta 	keyResult
+	bra 	POLDRAGON_SAVE_STATE	
 
 POLDRAGON_BREAK_KEY
 	lda 	#$03 	; treat the BREAK as CTRL+C on apple 2

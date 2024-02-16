@@ -1,15 +1,15 @@
-*********************************************************************
-* This code is responsible for routing reads/writes by the 6502 core
-* to it's ram via the real coco's ram. All of the 6502's virtual RAM
-* is accessed via Task 1 MMU registers of the GIME. The emulator
-* itself and BASIC resides in the normal Task 0 set of MMU registers.
-* This shim is designed to live at $E000 and above to leave the range
-* of $0000-$DFFF available in a contiguous way to the 6502 and it's
-* virtual ram. The 6502's ram between $E000-$FFFF is swapped in/out
-* only as needed to first block of Task 1 MMU so I can use convenient 
-* offsets to calculate where it's stored in real coco RAM. I know this
-* is a bit convoluted so... sorry in advance :-D
-*********************************************************************
+**********************************************************************
+* Apple2Coco v1.0
+* Written by Todd Wallace
+*
+* My Links:
+* https://www.youtube.com/@tekdragon
+* https://github.com/dragonbytes
+* https://tektodd.com
+**********************************************************************
+* The shim below handles all of the actual writes/reads to/from the
+* 6502 memory space as well as reacting to hardware I/O registers/ports
+**********************************************************************
 
 CPU_6502_VARS
 ; 6502 Registers
@@ -24,8 +24,14 @@ tempWord  		RMB 	2
 
 ; Apple II HW IO Variables
 apple2keyStatus	RMB  	1
-apple2spkrCounter  	FCB  	120
+apple2spkrCounter 	FCB  	120
 vidRefreshCounter  	FCB 	2
+vidRefreshFlag  	FCB  	0
+apple2videoUpdatePtr RMB  	2
+apple2videoMode  	FCB  	$50  	; default for lo-res text-only mode
+ IFDEF debugger_enabled
+debugScreenToggle  	FCB  	0
+ ENDC
 
 ; -------------------------------------------------------------------------------------------
 ; read_op_byte calls return the result in F so it can eventually can get used in an indexed operation
@@ -85,7 +91,7 @@ CPU_READ_DATA_BYTE_INTO_B_RETURN_KEYPRESS
 	rts  
 CPU_READ_DATA_BYTE_INTO_B_CHECK_SPKR
 	cmpf 	#$30
-	bne   	CPU_READ_DATA_BYTE_INTO_B_UNSUPPORTED_IO
+	bne   	CPU_READ_DATA_BYTE_INTO_B_CHECK_VID_MIXED
 	ldb  	<apple2spkrCounter
 	bne  	CPU_READ_DATA_BYTE_INTO_B_EXIT
 	; beep the speaker
@@ -94,7 +100,41 @@ CPU_READ_DATA_BYTE_INTO_B_CHECK_SPKR
 	ldb  	#120 	
 	stb  	<apple2spkrCounter
 	rts 
+CPU_READ_DATA_BYTE_INTO_B_CHECK_VID_MIXED
+	cmpf  	#$53
+	bne  	CPU_READ_DATA_BYTE_INTO_B_CHECK_VID_TEXT
+	; if here, set video mode for mixed lo-res gfx and 4 rows of text on bottom 
+	stf  	<apple2videoMode
+	; change coco3 video mode to 16 colors on 320x192
+	ldb 	#%00011110
+	stb 	>gime_vres
+	ldb  	#33
+	stb  	>gime_palette1
+	ldb  	>apple2_lores_gfx_update
+	stb  	<apple2videoUpdatePtr
+	ldb  	>apple2_lores_gfx_update+1
+	stb  	<apple2videoUpdatePtr+1
+	rts 
+CPU_READ_DATA_BYTE_INTO_B_CHECK_VID_TEXT
+	cmpf  	#$51 
+	bne  	CPU_READ_DATA_BYTE_INTO_B_CHECK_FLOPPY_READ
+	ldb 	#%00001100
+	stb 	>gime_vres
+	ldb  	#16 		; white text 
+	stb  	>gime_palette1
+	ldb  	>apple2_lores_text_update
+	stb  	<apple2videoUpdatePtr
+	ldb  	>apple2_lores_text_update+1
+	stb  	<apple2videoUpdatePtr+1
+	rts 	
+CPU_READ_DATA_BYTE_INTO_B_CHECK_FLOPPY_READ
+	;cmpf  	#$8C 
+	;bne  	CPU_READ_DATA_BYTE_INTO_B_UNSUPPORTED_IO
+	; if here, code is trying to read some kind of byte from the floppy interface 
+	;ldb  	<floppyReadH	
+
 CPU_READ_DATA_BYTE_INTO_B_UNSUPPORTED_IO
+	rts
 CPU_READ_DATA_BYTE_INTO_B_NOT_IO	
 	ldb  	#1
 	stb  	>$FF91 
@@ -200,6 +240,13 @@ CPU_WRITE_BYTE
 	clr  	>$FF91   	
 	rts 
 CPU_WRITE_BYTE_NO_SHIM_CONFLICT
+	cmpe  	#$04
+	blo   	CPU_WRITE_BYTE_NO_SHIM_CONFLICT_NOT_VRAM
+	cmpe  	#$08
+	bhs  	CPU_WRITE_BYTE_NO_SHIM_CONFLICT_NOT_VRAM
+	; if here, something is writing to vram. set flag to request video update
+	ste  	<vidRefreshFlag
+CPU_WRITE_BYTE_NO_SHIM_CONFLICT_NOT_VRAM
 	stb  	,W
 	clr 	>$FF91	
 	rts 
