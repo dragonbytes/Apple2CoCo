@@ -19,7 +19,7 @@ This emulator is mostly a proof-of-concept project and is by no means a complete
 
 **The Apple II+ ROM Image**
 
-A 20KB ROM image from an Apple II+ is required for the emulator work. For obvious reasons I cannot bundle this with my emulator, but it shouldn't be too difficult to obtain one. The filename of the ROM you need for my emulator is APPLE2.ROM. Copy this file onto the same CoCo-formatted disk that the emulator is located on. That's all you have to do!
+A 20KB ROM image from an Apple II+ is required for the emulator to work. For obvious reasons I cannot bundle this with my emulator, but it shouldn't be too difficult to obtain one. The filename of the ROM you need for my emulator is APPLE2.ROM. Copy this file onto the same CoCo-formatted disk that the emulator is located on. That's all you have to do!
 
 **Running The Emulator**
 
