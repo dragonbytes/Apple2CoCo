@@ -4,8 +4,14 @@ Written by Todd Wallace
 <br>
 YouTube: https://www.youtube.com/@tekdragon  
 Website: https://tektodd.com<br><br>
-<p align="center"><img width="641" alt="Screenshot 2023-02-16 131143" src="https://user-images.githubusercontent.com/17234382/219452025-69a8fe24-284a-431e-b401-70d3daa60aec.png"></p>
-<br>
+<div class="row">
+  <div class="column">
+    <img width="641" alt="Screenshot 2023-02-16 131143" src="https://user-images.githubusercontent.com/17234382/219452025-69a8fe24-284a-431e-b401-70d3daa60aec.png">
+  </div>
+  <div class="column">
+    <img alt="lo_res_gfx_screenshot" src="https://github.com/dragonbytes/Apple2CoCo/assets/17234382/2bc92184-7edc-485e-b29a-d30ce059675b">
+  </div>
+</div>
 
 **Version 1.0 Update**
 
