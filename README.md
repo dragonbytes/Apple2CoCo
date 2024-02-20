@@ -23,9 +23,9 @@ A 20KB ROM image from an Apple II+ is required for the emulator to work. For obv
 
 **Running The Emulator**
 
-Once you have your CoCo disk with the emulator and a copy of APPLE2.ROM on it, type:
+Once you have copied your APPLE2.ROM file onto the disk alongside the emulator, type:
 <pre>LOADM"APPLEEMU.BIN"</pre>
-Then run the program with the EXEC command. The loader will automatically search the disk for the required APPLE2.ROM file, and when found, will load it into the CoCo 3's RAM. As soon as it finishes, the Apple II+ emulation will boot and you should soon see the familiar "Apple II" text at the top of the screen. By default, a real Apple II+ tries to boot off the floppy drive when you power it on. Unfortuantely, floppy drives are not yet supported by my emulator so all you can really do is jump into AppleSoft BASIC. To do this on real hardware, you would press the APPLE + RESET keys together. I have mapped this function to the CoCo 3's CLEAR key. After pressing this key, you should find yourself at the AppleSoft BASIC prompt! The rest is up to you! Have fun tinkering!
+Then run the program with the EXEC command. The loader will automatically search the disk for the required APPLE2.ROM file and load it into the CoCo 3's RAM. As soon as it finishes, the Apple II+ emulation will boot and you should soon see the familiar "Apple II" text at the top of the screen. By default, a real Apple II+ tries to boot off the floppy drive when you power it on. Unfortuantely, floppy drives are not yet supported by my emulator so all you can really do is jump into AppleSoft BASIC. To do this on real hardware, you would press the APPLE + RESET keys together. I have mapped this function to the CoCo 3's CLEAR key. After pressing this key, you should find yourself at the AppleSoft BASIC prompt! The rest is up to you! Have fun tinkering!
 
 **Building Instructions**
 
