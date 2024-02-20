@@ -1,4 +1,4 @@
-# Apple2CoCo
+# Apple2CoCo v1.0
 A simple Apple II emulator written for the Tandy Color Computer 3<br>
 Written by Todd Wallace
 <br>
@@ -6,9 +6,18 @@ YouTube: https://www.youtube.com/@tekdragon
 Website: https://tektodd.com<br><br>
 <p align="center"><img width="641" alt="Screenshot 2023-02-16 131143" src="https://user-images.githubusercontent.com/17234382/219452025-69a8fe24-284a-431e-b401-70d3daa60aec.png"></p>
 <br>
+
+**Version 1.0 Update**
+
+I think i've finally gotten this emulator into a state that I feel comfortable calling it a version 1.0! In no particular order, here are some of the major changes/updates:
+- Simplified loader. Only one BIN file to load.
+- Rudimentary Apple II+ Lo-Res Graphics mode support
+- Optional build flag to include a basic 6502 debugger that uses CoCo3 Hi-Res Text screen to display a trace of 6502 instructions as the emulator runs them
+- Simple BASH build script to create the executable and CoCo DSK image
+
 This emulator is mostly a proof-of-concept project and by no means a complete emulation of the Apple II. While the 6502 CPU emulation is complete, the only two apple-specific things that work are the keyboard I/O and the Lo Res "stock" 40 column text-only video mode. The video stuff isn't cycle-accurate and probably not implemented in the smartest way, but it works! I have plans to expand this in the future to support additional video modes and maybe make some optimizations to the process.
 
-**BUILDING INSTRUCTIONS**
+**Building Instructions**
 
 In it's current form, building the disk image to run the emulator is
 unfortunately a little convuluted. I hope to implement a more convienient and
@@ -18,42 +27,7 @@ my example commands will use LWASM's syntax and parameters, etc.
 
 **The Apple II+ ROM Image**
 
-The ROM used in my loader is the one specifically from an Apple II+ model and
-it is 20KB in size. For obvious reasons, I cannot distribute that ROM image 
-so you must obtain one on your own. When you do, it must be copied onto a
-RS-DOS formatted floppy disk starting at Track 24 Sector 1 and should end
-after Track 28 Sector 8. You will have to make sure on your own that there is
-no data already there and that files you create don't overwrite it, so I
-recommend you copy all the files FIRST, and do the ROM image data last.
-
-**Assemble the ROM Image Loader Program**
-
-The next step is to assemble the ROM loader program that will pull the ROM
-off the disk and populate it into memory where the emulator will expect it.
-Use the following command to do this: 
-
-<pre>lwasm -o applerom.bin apple2_load_rom.asm</pre>
-
-**Assembling the Main CPU Core and I/O Emulation Component**
-
-I wrote the 6502 emulation core to be mostly modular so that it could be easily
-used in other projects as well. Also because it resides in memory where DECB lives,
-I needed to write my own customized loader since using LOADM directly would
-crash the machine. Assemble the loader's "payload" using the following command: 
-
-<pre>lwasm --format=raw -o cpu6502payload.bin cpu6502.asm</pre>
-
-This will generate a raw binary file that will be incorprorated into the
-next step, which is assembling the Apple-specific emulation code for
-stuff like rendering it's screen on the coco etc. This process will 
-also import the raw binary "payload" we created in the previous step
-automatically.
-
-<pre>lwasm -o apple.bin apple2_loader.asm</pre>
-
-Finally, copy the two BIN files we created, <b>applerom.bin</b> and <b>apple.bin</b>, to the disk you
-made earlier with the ROM on it using your copy tool of choice. Personally, I
-use the <a href="https://sourceforge.net/projects/toolshed/">ToolShed</a> command-line tools to do this.
+A 20KB ROM image from an Apple II+ is required for the emulator work. For obvious reasons I cannot bundle this with my emulator, but they aren't too difficult to locate. The filename you want is usually called APPLE2.ROM. Once you have it, copy it onto the same CoCo-formatted disk that the emulator is located on.
 
 **Running The Emulator**
 
