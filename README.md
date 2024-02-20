@@ -10,7 +10,7 @@ Website: https://tektodd.com<br><br>
 **Version 1.0 Update**
 
 I think i've finally gotten this emulator into a state that I feel comfortable calling it a version 1.0! In no particular order, here are some of the major changes/updates:
-- Simplified loader. All you need is the emulator's single executable BIN file and a copy of APPLE2.ROM.
+- Simplified loader reads in the needed ROM file directly off of the CoCo disk's filesystem. No weird custom disk images needed anymore.
 - Rudimentary Apple II+ Lo-Res Graphics mode support
 - Optional build flag to include a basic 6502 debugger that uses CoCo3 Hi-Res Text screen to display a trace of 6502 instructions as the emulator runs them
 - Simple BASH build script to create the executable and CoCo DSK image
